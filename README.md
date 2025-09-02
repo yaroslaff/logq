@@ -1,2 +1,2 @@
 # OddIP
-Simple WAF based on log analysis
+Anomaly detector for webserver config
