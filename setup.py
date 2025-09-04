@@ -22,6 +22,7 @@ setup(
     license="MIT",
     install_requires=[
         "evalidate>=2.0.5",
-        "rich"
+        "rich",
+        "toml"
     ],
 )

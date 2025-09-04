@@ -5,16 +5,18 @@ import os
 import sys
 import argparse
 import json
+import toml
 from evalidate import Expr, EvalException, base_eval_model
 from typing import List, Dict, Any
 
 from .stats import stats
 from .logfile import LogFile
-
+from .config import settings, load_config
 
 def get_args():
     parser = argparse.ArgumentParser(description='Process nginx log file')
-    parser.add_argument('path', type=str, help='Path to log file')
+    parser.add_argument('path', type=str, nargs='?', help='Path to log file')
+    parser.add_argument("-c", "--config", help="Path to logq.toml")
     parser.add_argument('--verbose', '-v', action='store_true', default=False)
     parser.add_argument('--output', '-o', choices=["sum", "json", "log", "ip"], default="sum")
     parser.add_argument('--sort', '-s', default=None, help='Sort output by given field (e.g. "hits" or "hits-" for descending order)')
@@ -76,33 +78,42 @@ def filter(logfile: LogFile, ip_eval: str, rec_eval: str, output: str) -> List[D
     return data
 
 def sort_data(data: List[Dict[str, Any]], sort_order: str, output: str) -> List[Dict[str, Any]]:
-    sort_field = sort_order.rstrip('-')
-    print("field:", sort_field)
+    
+    if sort_order is not None:
+        sort_field = sort_order.rstrip('-')
+    else:
+        if output in ['sum', 'ip']:
+            sort_field = 'hits'
+        else:
+            sort_field = 'datetime'
+
     sort_reverse = sort_order.endswith('-') if sort_order else False
 
-    try:
-        if output == "sum":
-            data_sorted = sorted(data, key=lambda x: x[sort_field] if sort_field else x['hits'], reverse=sort_reverse)
+    if output in ["sum", "ip"]:        
+        data_sorted = sorted(data, key=lambda x: x.get(sort_field, 0), reverse=sort_reverse)
+        return data_sorted
+    elif output in ["json", "log"]:
+        try:
+            data_sorted = sorted(data, key=lambda x: x[sort_field], reverse=sort_reverse)
             return data_sorted
-        elif output in ["json", "log"]:
-            data_sorted = sorted(data, key=lambda x: x[sort_field] if sort_field else x['datetime'], reverse=sort_reverse)
-            return data_sorted
-        else:
-            raise NotImplementedError(f"Output format {output} not implemented in sort")
-    except KeyError as e:
-        print(f"Invalid sort field: {e}. Try {'/'.join(data[0].keys())}")
-        sys.exit(1)
-
+        except KeyError as e:
+            print(f"Invalid sort field: {e}. Try {'/'.join(data[0].keys())}")
+            sys.exit(1)
+    else:
+        raise NotImplementedError(f"Output format {output} not implemented in sort")
 
 
 def main():
 
     args = get_args()
     
+    load_config(args.config)
+
     log_path = args.path
-    log_pattern = re.compile(
-        r'(?P<ip>\d+\.\d+\.\d+\.\d+) - - \[(?P<datetime>[^\]]+)\] "(?P<method>\w+) (?P<url>[^ ]+) (?P<protocol>[^"]+)" (?P<status>\d+) (?P<size>\d+) "(?P<referrer>[^"]*)" "(?P<user_agent>[^"]*)"'
-    )
+
+    logconf = settings.getlogconf(log_path)
+
+    log_pattern = re.compile(logconf['regex'])
     logfile = LogFile(log_path, log_pattern)
     logfile.read_all()
 
@@ -117,8 +128,15 @@ def main():
 
     if args.output == "sum":
         print(json.dumps(data, indent=4))
+    if args.output == "ip":
+        for r in data:
+            print(r['ip'])
     elif args.output in ["json", "log"]:            
-        print(json.dumps(data, indent=4))
+        if args.output == "json":
+            print(json.dumps(data, indent=4))
+        else:
+            for r in data:
+                print(r["raw"])
     else:
         raise NotImplementedError(f"Output format {args.output} not implemented")
 
