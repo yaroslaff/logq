@@ -6,6 +6,7 @@ DEFAULT_PATHS = [
     "/etc/logq.toml",
     "/usr/local/etc/logq.toml",
     os.path.expanduser("~/.logq.toml"),
+    "logq.toml"
 ]
 
 
@@ -30,10 +31,12 @@ def load_config(path=None):
     paths = [path] if path else DEFAULT_PATHS
     for p in paths:
         if os.path.exists(p):
+            print(f"Loading config from {p}")
+
             tomlconf =  toml.load(p)
 
             # init settings
             settings.def_regex = tomlconf.get("def_regex", None)
             settings.logs = tomlconf.get("log", {})
-
+            
     return {}  

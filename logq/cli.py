@@ -20,30 +20,32 @@ def get_args():
     parser.add_argument('--verbose', '-v', action='store_true', default=False)
     parser.add_argument('--output', '-o', choices=["sum", "json", "log", "ip"], default="sum")
     parser.add_argument('--sort', '-s', default=None, help='Sort output by given field (e.g. "hits" or "hits-" for descending order)')
+    parser.add_argument('--num', '-n', default=None, type=int, help='Num results to show (for [sorted] sessions)')
 
-    g = parser.add_argument_group('Query')
-    g.add_argument('--ip-eval', '-i', type=str, default=None, help='Expression for IP summary to evaluate. Example: "status200 > 100" or "ip == \'10.0.0.254\'"')
-    g.add_argument('--rec-eval', '-r', type=str, default=None, help='Expression for log record to evaluate. Example: "status==403"')
+
+    g = parser.add_argument_group('Filters (Session > Record)')
+    g.add_argument('--filter', '-f', type=str, default=None, help='Main (session) Filter. Expression for IP summary to evaluate. Example: "status200 > 100" or "ip == \'10.0.0.254\'"')
+    g.add_argument('--record', '-r', type=str, default=None, help='Record filter (for -o json/log). Expression for log record to evaluate. Example: "status==403"')
 
 
     return parser.parse_args()
 
 
 
-def filter(logfile: LogFile, ip_eval: str, rec_eval: str, output: str) -> List[Dict[str, Any]]:
+def filter(logfile: LogFile, session_filter: str, record_filter: str, output: str) -> List[Dict[str, Any]]:
     data = list()
     my_model = base_eval_model.clone()
     my_model.nodes.extend(['Call', 'Attribute'])
     my_model.attributes.extend(['startswith', 'endswith'])
 
     try:
-        sum_expr = Expr(ip_eval, model=my_model) if ip_eval else None
+        session_expr = Expr(session_filter, model=my_model) if session_filter else None
     except EvalException as e:
         print(f"Invalid expression: {e}")
         sys.exit(1)
 
     try:
-        rec_expr = Expr(rec_eval, model=my_model) if rec_eval else None
+        record_expr = Expr(record_filter, model=my_model) if record_filter else None
     except EvalException as e:
         print(f"Invalid expression: {e}")
         sys.exit(1)
@@ -52,7 +54,7 @@ def filter(logfile: LogFile, ip_eval: str, rec_eval: str, output: str) -> List[D
         summary = logfile.summary(ip)
 
         try:
-            match = eval(sum_expr.code, None, summary) if sum_expr else True
+            match = eval(session_expr.code, None, summary) if session_expr else True
         except NameError as e:
             stats.sum_name_errors += 1
             match = False
@@ -68,7 +70,7 @@ def filter(logfile: LogFile, ip_eval: str, rec_eval: str, output: str) -> List[D
                 for r in logfile.ip_records[ip]:
                     rec_data = r.as_dict()
                     try:
-                        rec_match = eval(rec_expr.code, None, rec_data) if rec_expr else True
+                        rec_match = eval(record_expr.code, None, rec_data) if record_expr else True
                     except EvalException as e:            
                         stats.rec_runtime_errors += 1
                         rec_match = False
@@ -110,6 +112,10 @@ def main():
     load_config(args.config)
 
     log_path = args.path
+    if not log_path:
+        print("No log file specified")
+        sys.exit(1)
+
 
     logconf = settings.getlogconf(log_path)
 
@@ -121,14 +127,14 @@ def main():
         print(f"# Loaded {logfile.nrecords} records from {args.path}")
 
 
-    data = filter(logfile, args.ip_eval, args.rec_eval, args.output)
+    data = filter(logfile, args.filter, args.record, args.output)
             
     # Output
     data = sort_data(data, sort_order=args.sort, output=args.output)
 
     if args.output == "sum":
         print(json.dumps(data, indent=4))
-    if args.output == "ip":
+    elif args.output == "ip":
         for r in data:
             print(r['ip'])
     elif args.output in ["json", "log"]:            
@@ -138,7 +144,7 @@ def main():
             for r in data:
                 print(r["raw"])
     else:
-        raise NotImplementedError(f"Output format {args.output} not implemented")
+        raise NotImplementedError(f"Output format {args.output!r} not implemented")
 
 
     if args.verbose:

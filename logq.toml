@@ -4,3 +4,6 @@ def_regex = "(?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+) - - \\[(?P<datetime>[^\\]]+)\\] \
 [log.laegis]
 path = "/tmp/access.log"
 regex = "(?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+) - - \\[(?P<datetime>[^\\]]+)\\] \"(?P<method>\\w+) (?P<url>[^ ]+) (?P<protocol>[^\"]+)\" (?P<status>\\d+) (?P<size>\\d+) \"(?P<referrer>[^\"]*)\" \"(?P<user_agent>[^\"]*)\""
+
+[query.login]
+ip_eval="url=='/login' and method=='POST'"
