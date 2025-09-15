@@ -1,5 +1,10 @@
 # LogQ
-Anomaly (hacking attempt) detector for webserver log files
+Anomaly (hacking attempt) detector for webserver log files (work in progress, usable only for developers)
+
+example command:
+~~~
+logq -q post logintag realuser -l /tmp/access.log -s rates:postrate
+~~~
 
 ## Examples
 ### Per-IP summary

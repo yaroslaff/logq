@@ -5,5 +5,30 @@ def_regex = "(?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+) - - \\[(?P<datetime>[^\\]]+)\\] \
 path = "/tmp/access.log"
 regex = "(?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+) - - \\[(?P<datetime>[^\\]]+)\\] \"(?P<method>\\w+) (?P<url>[^ ]+) (?P<protocol>[^\"]+)\" (?P<status>\\d+) (?P<size>\\d+) \"(?P<referrer>[^\"]*)\" \"(?P<user_agent>[^\"]*)\""
 
+
+
+#
+# Stages: onload, tagging, rate, session, records
+#
+[query.logintag]
+query="url=='/login' and method=='POST'"
+stage="tagging"
+tag="LOGIN"
+
 [query.login]
-ip_eval="url=='/login' and method=='POST'"
+query="url=='/login' and method=='POST'"
+stage="records"
+
+[query.post]
+query="method=='POST'"
+stage="rate"
+counter="postrate"
+
+[query.short]
+query="duration_sec < 600"
+stage="session"
+
+[query.realuser]
+query="'LOGIN' in tags"
+stage="session"
+
