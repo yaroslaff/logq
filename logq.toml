@@ -1,23 +1,25 @@
-def_regex = "(?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+) - - \\[(?P<datetime>[^\\]]+)\\] \"(?P<method>\\w+) (?P<url>[^ ]+) (?P<protocol>[^\"]+)\" (?P<status>\\d+) (?P<size>\\d+) \"(?P<referrer>[^\"]*)\" \"(?P<user_agent>[^\"]*)\""
+def_regex = "(?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+) - - \\[(?P<datetime>[^\\]]+)\\] \"(?P<method>\\w+) (?P<uri>[^ ]+) (?P<protocol>[^\"]+)\" (?P<status>\\d+) (?P<size>\\d+) \"(?P<referrer>[^\"]*)\" \"(?P<user_agent>[^\"]*)\""
 
 # log files
 [log.laegis]
 path = "/tmp/access.log"
-regex = "(?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+) - - \\[(?P<datetime>[^\\]]+)\\] \"(?P<method>\\w+) (?P<url>[^ ]+) (?P<protocol>[^\"]+)\" (?P<status>\\d+) (?P<size>\\d+) \"(?P<referrer>[^\"]*)\" \"(?P<user_agent>[^\"]*)\""
+regex = "(?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+) - - \\[(?P<datetime>[^\\]]+)\\] \"(?P<method>\\w+) (?P<uri>[^ ]+) (?P<protocol>[^\"]+)\" (?P<status>\\d+) (?P<size>\\d+) \"(?P<referrer>[^\"]*)\" \"(?P<user_agent>[^\"]*)\""
 
 
 
 #
-# Stages: onload, tagging, rate, session, records
+# Stages: onload, tagging, rate, session, out
 #
 [query.logintag]
-query="url=='/login' and method=='POST'"
+# successful login
+query="uri=='/client/dashboard' and method=='GET' and status==200"
 stage="tagging"
 tag="LOGIN"
 
 [query.login]
-query="url=='/login' and method=='POST'"
-stage="records"
+# any login attempt
+query="uri=='/login' and method=='POST'"
+stage="out"
 
 [query.post]
 query="method=='POST'"
@@ -32,3 +34,9 @@ stage="session"
 query="'LOGIN' in tags"
 stage="session"
 
+[query.alvip]
+query="ip == '176.57.121.54'"
+stage="onload"
+
+[query.docusign]
+query='method=="POST" and '

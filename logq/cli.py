@@ -12,192 +12,139 @@ from typing import List, Dict, Any
 from .stats import stats
 from .logfile import LogFile
 from .config import settings, load_config
+from .expressions import ExpressionCollection
 
 def get_args():
-    parser = argparse.ArgumentParser(description='Process nginx log file')
+
+    def_period = 60
+
+    parser = argparse.ArgumentParser(description=f'Process nginx log file. Python: {sys.version_info.major}.{sys.version_info.minor}')
     parser.add_argument('-l', '--log', metavar='PATH', type=str, nargs='?', help='Path to log file')
     parser.add_argument("-c", "--config", help="Path to logq.toml")
-    parser.add_argument('--verbose', '-v', action='store_true', default=False)
-    parser.add_argument('--output', '-o', choices=["sum", "json", "log", "ip"], default="sum")
-    parser.add_argument('--sort', '-s', default=None, help='Sort output by given field (e.g. "hits" or "hits-" for descending order)')
-    parser.add_argument('--num', '-n', default=None, type=int, help='Num results to show (for [sorted] sessions)')
-    parser.add_argument('--query', '-q', default=None, metavar='NAME', nargs='*', type=str, help='Run queries NAME from config')
 
-    g = parser.add_argument_group('Filters (Session > Record)')
-    g.add_argument('--record', '-r', type=str, default=None, help='Record filter (for -o json/log). Expression for log record to evaluate. Example: "status==403"')
 
+    g = parser.add_argument_group('Output')
+    g.add_argument('--verbose', '-v', action='store_true', default=False)
+    g.add_argument('--output', '-o', choices=["json", "log", "ip", "rate"], default="log")    
+    g.add_argument('--sort', '-s', default=None, help='Sort output by given field (e.g. "hits" or "hits-" for descending order)')
+    g.add_argument('--num', '-n', default=None, type=int, help='Num results to show (for [sorted] sessions)')
+    g.add_argument('--period', '-p', default=def_period, type=int, help='period for counters')
+    g.add_argument('--sum', '--summary', action='store_true', default=False, help='print only session summary')
+
+
+    g = parser.add_argument_group('Filters (Session > Record). Stages: onload, tagging, rate, session, out')
+    g.add_argument('-q', dest='query', default=None, metavar='NAME', nargs='*', type=str, help='Run named queries NAME from config')
+
+    g.add_argument('--onload', nargs='+', type=str, help='Add onload query expression filter(s)')
+    g.add_argument('--session', nargs='+', type=str, help='Add session query expression filter(s)')
+    g.add_argument('--out', nargs='+', type=str, help='Add out query expression filter(s)')
 
     return parser.parse_args()
 
 
 
-def filter(logfile: LogFile, tagexpr: dict, rateexpr: dict,  q_session: str, q_records: str, output: str) -> List[Dict[str, Any]]:
-    data = list()
-    my_model = base_eval_model.clone()
-    my_model.nodes.extend(['Call', 'Attribute'])
-    my_model.attributes.extend(['startswith', 'endswith'])
+def session_filter(logfile: LogFile, ec: ExpressionCollection) -> List[Dict[str, Any]]:
+    iplist = list()
 
-    tagcode = dict()
-    ratecode = dict()
-
-    for tag, expr in tagexpr.items():
-        tagcode[tag] = Expr(expr, model=my_model).code
-
-    for counter, expr in rateexpr.items():
-        ratecode[counter] = Expr(expr, model=my_model).code
-
-    try:
-        session_expr = Expr(q_session, model=my_model) if q_session else None
-    except EvalException as e:
-        print(f"Invalid expression: {e}")
-        sys.exit(1)
-
-
-    try:
-        record_expr = Expr(q_records, model=my_model) if q_records else None
-    except EvalException as e:
-        print(f"Invalid expression: {e}")
-        sys.exit(1)
-
+    # onload already applied in read_all
 
     # tagging pass
     for ip in logfile.ips():
         for r in logfile.ip_records[ip]:
             rec_data = r.as_dict()
-            try:
-                for tag, code in tagcode.items():
-                    rec_match = eval(code, None, rec_data)
-                    if rec_match:
-                        logfile.add_tag(ip, tag)
-                        pass
-
-
-            except EvalException as e:
-                print(e, file=sys.stderr)
-                sys.exit(1)
-                pass
+            for e in ec.iter("tagging"):
+                try:
+                    if eval(e.code, None, rec_data):
+                        logfile.add_tag(ip, e.param)
+                except NameError as ex:
+                    print(f"Name error in expression {e.expr}: {ex}", file=sys.stderr)
+                    sys.exit(1)
 
     # rating pass
     for ip in logfile.ips():
         for r in logfile.ip_records[ip]:
             rec_data = r.as_dict()
-            try:
-                for counter, code in ratecode.items():
-                    rec_match = eval(code, None, rec_data)
-                    if rec_match:
-                        logfile.ratecount(ip, counter, r.datetime)
-                        pass
+            for e in ec.iter("rate"):
+                rec_match = eval(e.code, None, rec_data)
+                if rec_match:
+                    logfile.ratecount(ip, e.param, r.datetime, data=r)
+                    pass
 
 
-            except EvalException as e:
-                print(e, file=sys.stderr)
-                sys.exit(1)
-                pass
-
-
-
+    # session and out pass
     for ip in logfile.ips():
         summary = logfile.summary(ip)
+        if ec.apply_all("session", summary) or not ec.session:
+            # session summary match
+            iplist.append(ip)
+        #if all(eval(e.code, None, summary) for e in ec.iter("session")) or not ec.session:
+        #    # session summary match
+        #    iplist.append(ip)
 
-        try:
-            match = eval(session_expr.code, None, summary) if session_expr else True
-        except NameError as e:
-            stats.sum_name_errors += 1
-            match = False
-        except EvalException as e:            
-            stats.sum_runtime_errors += 1
-            match = False
-            
-        if match:
-            stats.sum_matches += 1
-            if output in ["sum", "ip"]:
-                data.append(summary)
-            elif output in ["json", "log"]:
-                for r in logfile.ip_records[ip]:
-                    rec_data = r.as_dict()
-                    try:
-                        rec_match = eval(record_expr.code, None, rec_data) if record_expr else True
-                    except EvalException as e:            
-                        stats.rec_runtime_errors += 1
-                        rec_match = False
-                    if rec_match:
-                        data.append(rec_data)
-                        stats.rec_matches += 1
-    return data
+    return iplist
 
-def sort_data(data: List[Dict[str, Any]], sort_order: str, output: str) -> List[Dict[str, Any]]:
-    
+
+
+def sort_sessions(data: List[Dict[str, Any]], sort_order: str, output: str) -> List[Dict[str, Any]]:
+    """  Sort data by given field """
+
     if sort_order is not None:
         sort_field = sort_order.rstrip('-')
     else:
-        if output in ['sum', 'ip']:
-            sort_field = 'hits'
-        else:
-            sort_field = 'datetime'
+        sort_field = 'hits'
 
     sort_reverse = sort_order.endswith('-') if sort_order else False
 
-    if output in ["sum", "ip"]:        
-        data_sorted = sorted(data, key=lambda x: x.get(sort_field, 0), reverse=sort_reverse)
-        return data_sorted
-    elif output in ["json", "log"]:
-        try:
-            data_sorted = sorted(data, key=lambda x: x[sort_field], reverse=sort_reverse)
-            return data_sorted
-        except KeyError as e:
-            print(f"Invalid sort field: {e}. Try {'/'.join(data[0].keys())}")
-            sys.exit(1)
-    else:
-        raise NotImplementedError(f"Output format {output} not implemented in sort")
+    data_sorted = sorted(data, key=lambda x: x.get(sort_field, 0), reverse=sort_reverse)
+    return data_sorted
 
 
 
-def get_queries(queries: list):
-    q_onload = None
-    tagexpr = dict()
-    rateexpr = dict()
-    q_session = None
-    q_records = None
-    
+def get_queries(args: argparse.Namespace) -> ExpressionCollection:
+    """ Get queries from config and make ec """
+    ec = ExpressionCollection()    
+    try:
+        if args.query:
+            for q in args.query:
+                if q in settings.query:
+                    qconf = settings.query[q] 
 
-    if queries:
-        for q in queries:
-            if q in settings.query:
-                qconf = settings.query[q] 
-                tag = None               
-                counter = None
+                    try:
+                        stage = qconf['stage']
+                        query = qconf['query']
+                        param = None
+                        if stage == 'tagging':
+                            param = qconf['tag']
+                        if stage == 'rate':
+                            param = qconf['counter']
 
-                try:
-                    stage = qconf['stage']
-                    query = qconf['query']
-                    if stage == 'tagging':
-                        tag = qconf['tag']
-                    if stage == 'rate':
-                        counter = qconf['counter']
-                except KeyError as e:
-                    print(f"Invalid query config for {q!r}, missing key {e}")
+                        ec.add(query, stage, param)
+
+                    except KeyError as e:
+                        print(f"Invalid query config for {q!r}, missing key {e}")
+                        sys.exit(1)
+
+                else:
+                    print(f"Query {q!r} not found in config")
                     sys.exit(1)
 
-                match stage:
-                    case "onload": 
-                        q_onload = query
-                    case "tagging": 
-                        tagexpr[tag] = query
-                    case "rate":                         
-                        rateexpr[counter] = query
-                    case "session":
-                        q_session = query
-                    case "records":
-                        q_records = query                    
-                    case _:
-                        print(f"Invalid query config: {qconf}, do not know stage {qconf['stage']!r}")
-                        sys.exit(1)
-                
-            else:
-                print(f"Query {q!r} not found in config")
-                sys.exit(1)
+        if args.onload:
+            for q in args.onload:
+                ec.add(q, "onload", None)
 
-    return q_onload, tagexpr, rateexpr, q_session, q_records
+        if args.session:
+            for q in args.session:
+                ec.add(q, "session", None)
+        
+        if args.out:
+            for q in args.out:
+                ec.add(q, "out", None)
+    
+    except ValueError as e:
+        print(f"Error in expression: {e}")
+        sys.exit(1)
+
+    return ec
 
 def main():
 
@@ -213,38 +160,50 @@ def main():
 
     logconf = settings.getlogconf(log_path)
 
-    q_onload, tagexpr, rateexpr, q_session, q_records = get_queries(args.query)
-
-    if args.record:
-        # override record filter
-        q_records = args.record
+    ec = get_queries(args)
 
 
     log_pattern = re.compile(logconf['regex'])
-    logfile = LogFile(log_path, log_pattern, onload_expr=q_onload)
+    logfile = LogFile(log_path, log_pattern, ec=ec, period=args.period)
     logfile.read_all()
 
     if args.verbose:
         print(f"# Loaded {logfile.nrecords} records from {args.path}")
 
-    data = filter(logfile, tagexpr=tagexpr, rateexpr=rateexpr, q_session=q_session, q_records=q_records, output=args.output)
-            
-    # Output
-    data = sort_data(data, sort_order=args.sort, output=args.output)
 
-    if args.output == "sum":
+    iplist = session_filter(logfile, ec=ec)
+
+    if args.sum:
+        # Output
+        data = list()       
+
+        for ip in iplist:
+            summary = logfile.summary(ip)
+            data.append(summary)
+        data = sort_sessions(data, sort_order=args.sort, output=args.output)
         print(json.dumps(data, indent=4))
-    elif args.output == "ip":
-        for r in data:
-            print(r['ip'])
-    elif args.output in ["json", "log"]:            
-        if args.output == "json":
-            print(json.dumps(data, indent=4))
-        else:
-            for r in data:
-                print(r["raw"])
     else:
-        raise NotImplementedError(f"Output format {args.output!r} not implemented")
+        if args.output == "rate":
+            for ip in iplist:
+                for cnt in logfile.ratecounters(ip):
+                    for r in logfile.rate_records(ip, cnt):
+                        print(r.raw)
+                
+        else:
+            printed_ips = set()
+            for r in logfile.all_records:
+                if r.ip not in iplist:
+                    continue
+                rec_data = r.as_dict()
+                if ec.apply_all("out", rec_data):
+                    if args.output == "json":
+                        print(json.dumps(rec_data, ensure_ascii=False))
+                    elif args.output == "ip":
+                        if r.ip not in printed_ips:
+                            print(f"# {r.ip}")
+                            printed_ips.add(r.ip)
+                    else:   # log
+                        print(r.raw)
 
 
     if args.verbose:

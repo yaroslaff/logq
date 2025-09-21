@@ -9,7 +9,7 @@ class LogRecord:
         self.datetime_str = m.group('datetime')
         self.datetime = datetime.strptime(self.datetime_str.split()[0], "%d/%b/%Y:%H:%M:%S")
         self.method = m.group('method')
-        self.url = m.group('url')
+        self.uri = m.group('uri')
         self.protocol = m.group('protocol')
         self.status = int(m.group('status'))
         self.size = int(m.group('size'))
@@ -22,7 +22,7 @@ class LogRecord:
             'ip': self.ip,
             'datetime': self.datetime.strftime("%d/%b/%Y %H:%M:%S"),
             'method': self.method,
-            'url': self.url,
+            'uri': self.uri,
             'protocol': self.protocol,
             'status': self.status,
             'size': self.size,

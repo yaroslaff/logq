@@ -6,6 +6,16 @@ example command:
 logq -q post logintag realuser -l /tmp/access.log -s rates:postrate
 ~~~
 
+## Passes
+Each stage (onload/session/out) will apply filters and will keep only records for which ALL applied filter expression returned True. If at least one expression returned False, record will be dropped.
+
+**onload** - applied when reading log file, you can skip there records which you do not want to be in log
+**tagging** - tags are applied to sessions
+**rate** - rates are calculated (e.g. number of login attempts in N minutes)
+**session** - applied on session summary, you can filter sessions by various criteria 
+**out** - final filtering of log-records
+
+
 ## Examples
 ### Per-IP summary
 ~~~bash
