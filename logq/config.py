@@ -14,6 +14,7 @@ class Settings:
     def_regex: str | None
     logs: dict
     query: dict
+    scripts: dict
 
     def __repr__(self):
         return f"Settings(def_regex={self.def_regex})"
@@ -39,5 +40,6 @@ def load_config(path=None):
             settings.def_regex = tomlconf.get("def_regex", None)
             settings.logs = tomlconf.get("log", {})
             settings.query = tomlconf.get("query", {})
+            settings.scripts = tomlconf.get("scripts", {})
 
     return {}  

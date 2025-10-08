@@ -31,6 +31,10 @@ class ExpressionCollection:
     session: List[Expression]
     out: List[Expression]
 
+    summarize: bool = False
+    sort_field: str | None = None
+    sort_reverse: bool = False
+
     def __init__(self):
         self.onload = list()
         self.tag = list()

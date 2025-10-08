@@ -34,6 +34,9 @@ def get_args():
 
     g = parser.add_argument_group('Filters (Session > Record). Stages: onload, tagging, rate, session, out')
     g.add_argument('-q', dest='query', default=None, metavar='NAME', nargs='*', type=str, help='Run named queries NAME from config')
+    # g.add_argument('-a', '--auto', choices=['no', 'tagrate', 'auto'], default='auto', type=str, help='Auto-load queries from config: no, tagrate (tagging+rate), auto (all with auto=true)')
+    g.add_argument('-r', '--run', type=str, help='Run named script from config')
+
 
     g.add_argument('--onload', nargs='+', type=str, help='Add onload query expression filter(s)')
     g.add_argument('--session', nargs='+', type=str, help='Add session query expression filter(s)')
@@ -102,10 +105,33 @@ def sort_sessions(data: List[Dict[str, Any]], sort_order: str, output: str) -> L
 
 def get_queries(args: argparse.Namespace) -> ExpressionCollection:
     """ Get queries from config and make ec """
-    ec = ExpressionCollection()    
+    ec = ExpressionCollection()
+
+
+    queries = args.query if args.query else list()
+
+    if args.run:
+        try:
+            script = settings.scripts[args.run]
+        except KeyError:
+            print(f"Script {args.run!r} not found in config", file=sys.stderr)
+            sys.exit(1)
+                
+        for qname in script['queries']:
+            if qname not in settings.query:
+                print(f"Error in script {args.run!r}, query {qname!r} not found in config", file=sys.stderr)
+                sys.exit(1)
+            queries.append(qname)
+        
+        # add script options
+        if script.get('sort', None):
+            ec.sort_field = script['sort']
+        if script.get('sum', False):
+            ec.summarize = True
+
     try:
-        if args.query:
-            for q in args.query:
+        if queries:
+            for q in queries:
                 if q in settings.query:
                     qconf = settings.query[q] 
 
@@ -162,7 +188,6 @@ def main():
 
     ec = get_queries(args)
 
-
     log_pattern = re.compile(logconf['regex'])
     logfile = LogFile(log_path, log_pattern, ec=ec, period=args.period)
     logfile.read_all()
@@ -173,14 +198,17 @@ def main():
 
     iplist = session_filter(logfile, ec=ec)
 
+    summarize = ec.summarize or args.sum
+
     if args.sum:
         # Output
-        data = list()       
+        data = list()
 
         for ip in iplist:
             summary = logfile.summary(ip)
             data.append(summary)
-        data = sort_sessions(data, sort_order=args.sort, output=args.output)
+        sort_order = ec.sort_field or args.sort
+        data = sort_sessions(data, sort_order=sort_order, output=args.output)
         print(json.dumps(data, indent=4))
     else:
         if args.output == "rate":

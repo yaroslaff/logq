@@ -34,9 +34,4 @@ stage="session"
 query="'LOGIN' in tags"
 stage="session"
 
-[query.alvip]
-query="ip == '176.57.121.54'"
-stage="onload"
 
-[query.docusign]
-query='method=="POST" and '

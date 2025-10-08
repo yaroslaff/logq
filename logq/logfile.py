@@ -22,6 +22,7 @@ class LogFile:
         self._offset = 0
         self._inode = None
         self.nrecords = 0
+        self.skipped_onload = 0
         self.period = period
         self.ec = ec
 
@@ -52,13 +53,23 @@ class LogFile:
                 record = self.parse_line(line.strip())
 
                 if record:
-                    record_dict = record.as_dict()
+                    record_dict = record.as_dict()                    
                     # maybe filter?
-                    if self.ec and self.ec.onload:                        
-                        if all(eval(e.code, None, record_dict) for e in self.ec.iter("onload")):
+                    if self.ec:
+                        if self.ec.apply_all(where="onload", record=record_dict):
+                            # print("PASS", record_dict, file=sys.stderr)                       
                             self.ip_records[record.ip].append(record)
                             self.all_records.append(record)
                             self.nrecords += 1
+                        else:
+                            # print("SKIP", record_dict, file=sys.stderr)
+                            self.skipped_onload += 1
+                    else:
+                        # no filter, just add
+                        self.ip_records[record.ip].append(record)
+                        self.all_records.append(record)
+                        self.nrecords += 1
+            
             self._offset = f.tell()
 
     def read_new(self):
