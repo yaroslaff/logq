@@ -15,6 +15,7 @@ class Settings:
     logs: dict
     query: dict
     scripts: dict
+    context: dict
 
     def __repr__(self):
         return f"Settings(def_regex={self.def_regex})"
@@ -41,5 +42,6 @@ def load_config(path=None):
             settings.logs = tomlconf.get("log", {})
             settings.query = tomlconf.get("query", {})
             settings.scripts = tomlconf.get("scripts", {})
+            settings.context = tomlconf.get("context", {})
 
     return {}  

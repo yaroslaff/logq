@@ -1,4 +1,4 @@
-from typing import Any, Literal, List
+from typing import Any, Literal, List, Dict
 from types import CodeType
 from evalidate import Expr, EvalException, base_eval_model
 from collections.abc import Iterator
@@ -31,6 +31,8 @@ class ExpressionCollection:
     session: List[Expression]
     out: List[Expression]
 
+    variables: Dict[str, Any]
+
     summarize: bool = False
     sort_field: str | None = None
     sort_reverse: bool = False
@@ -41,8 +43,7 @@ class ExpressionCollection:
         self.rate = list()
         self.session = list()
         self.out = list()
-
-
+        self.variables = dict()
 
     def add(self, expr: str, where: Literal["onload", "tagging", "rate", "session", "out"], param: str | None):
 
@@ -81,11 +82,20 @@ class ExpressionCollection:
             raise ValueError(f"Invalid expression location: {where}")
 
     def apply_all(self, where: Literal["onload", "tagging", "rate", "session", "out"], record: dict) -> bool:
+
+        ctx = {**record, **self.variables}                
+
         for e in self.iter(where):
             try:
-                if not eval(e.code, None, record):
+                if not eval(e.code, None, ctx):
                     return False
             except NameError as ex:
-                print(f"Name error in expression {e.expr!r}: {ex}. Fields: {' '.join(record.keys())}", file=sys.stderr)
+                print(f"Name error in expression {e.expr!r}: {ex}. Fields: {' '.join(ctx.keys())}", file=sys.stderr)
                 return False
         return True
+    
+    def set_var(self, name, value):
+        self.variables[name] = value
+
+    def set_vars(self, vars: Dict[str, Any]):
+        self.variables.update(vars)

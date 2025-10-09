@@ -42,6 +42,9 @@ def get_args():
     g.add_argument('--session', nargs='+', type=str, help='Add session query expression filter(s)')
     g.add_argument('--out', nargs='+', type=str, help='Add out query expression filter(s)')
 
+    g = parser.add_argument_group('Variables')
+    g.add_argument('--set', nargs='+', dest='setvars', type=str, help='SET context variable(s), e.g. --set var=value var2=value2')
+
     return parser.parse_args()
 
 
@@ -107,7 +110,6 @@ def get_queries(args: argparse.Namespace) -> ExpressionCollection:
     """ Get queries from config and make ec """
     ec = ExpressionCollection()
 
-
     queries = args.query if args.query else list()
 
     if args.run:
@@ -128,6 +130,19 @@ def get_queries(args: argparse.Namespace) -> ExpressionCollection:
             ec.sort_field = script['sort']
         if script.get('sum', False):
             ec.summarize = True
+
+        if script.get('context', None):
+            ec.set_vars(settings.context[script['context']])
+
+    if args.setvars:
+        for sv in args.setvars:
+            if '=' in sv:
+                k, v = sv.split('=', 1)
+                ec.set_var(k, eval(v))
+            else:
+                print(f"Invalid variable assignment: {sv!r}, must be in form var=value", file=sys.stderr)
+                sys.exit(1)
+
 
     try:
         if queries:
@@ -174,6 +189,7 @@ def get_queries(args: argparse.Namespace) -> ExpressionCollection:
 
 def main():
 
+
     args = get_args()
     
     load_config(args.config)
@@ -182,7 +198,6 @@ def main():
     if not log_path:
         print("No log file specified")
         sys.exit(1)
-
 
     logconf = settings.getlogconf(log_path)
 
